@@ -20,6 +20,7 @@ const initToken = () => {
       access_type: "offline",
       scope: "https://www.googleapis.com/auth/gmail.readonly"
     })
+    // TODO make this an email
     console.log(`Authorize at:\n ${url}`)
 
     rl.question("Enter the code from that page here: ", (code) => {
