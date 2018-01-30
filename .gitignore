@@ -56,4 +56,6 @@ typings/
 
 # dotenv environment variables file
 .env
-
+.token
+.idea/workspace.xml
+client_id.json
