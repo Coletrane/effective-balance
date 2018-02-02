@@ -17,13 +17,18 @@ const oauth2Client = new OAuth2(
 )
 
 // Check if we have a stored token
-fs.readFile(tokenFile, (err, token) => {
-  if (err) {
-    requestToken()
-  } else {
-    oauth2Client.setCredentials(JSON.parse(token))
-  }
-})
+const getToken = async () => {
+  console.log("Authenticating with Google...")
+  await fs.readFile(tokenFile, async (err, token) => {
+    if (err) {
+      console.log('.token file not found, requesting new from Google')
+      await requestToken()
+    } else {
+      console.log('.token file found!')
+      oauth2Client.setCredentials(JSON.parse(token))
+    }
+  })
+}
 
 // Get auth token
 const requestToken = () => {
@@ -48,7 +53,7 @@ const requestToken = () => {
   })
 }
 
-
+// Store auth token in .token file
 const storeToken = (token) => {
   fs.writeFile(tokenFile, JSON.stringify(token), (err) => {
     if (!err) {
@@ -57,16 +62,18 @@ const storeToken = (token) => {
   })
 }
 
+const gmail = google.gmail({
+  auth: oauth2Client,
+  version: "v1"
+})
+
 const getSuntrustEmails = () => {
+  console.log("Getting SunTrust emails...");
   const sunTrustQuery =
     "from:alertnotification@suntrust.com" +
     "newer_than:2d" // TODO: figure out the timing on this
-// TODO: start an event loop
+  // TODO: start an event loop
 
-  const gmail = google.gmail({
-    auth: oauth2Client,
-    version: "v1"
-  })
   let messages = []
   gmail.users.messages.list({
     "userId": "me",
@@ -87,9 +94,10 @@ const getSuntrustEmails = () => {
           }
         })
       })
-      scrapeMessages(messages)
     }
   })
+
+  return messages
 }
 
 const scrapeMessages = (messages) => {
@@ -99,6 +107,11 @@ const scrapeMessages = (messages) => {
   })
 }
 
+const main = async () => {
+  await getToken()
+  const sunTrustEmails = await getSuntrustEmails()
+}
+main()
 // const app = express()
 //
 // const port = process.env.PORT || 3000
