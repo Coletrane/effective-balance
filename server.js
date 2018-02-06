@@ -5,6 +5,8 @@ const fs = require("fs")
 const google = require("googleapis")
 const OAuth2 = google.auth.OAuth2
 const util = require("util")
+const nodemailer = require('nodemailer')
+const schedule = require('node-schedule')
 require("dotenv").config()
 
 const readFile = util.promisify(fs.readFile)
@@ -68,63 +70,31 @@ const gmail = google.gmail({
   auth: oauth2Client,
   version: "v1"
 })
-// Promisify stuff because Google is stubborn
-const listGmails = util.promisify(gmail.users.messages.list)
-const getGmails = util.promisify(gmail.users.messages.get)
 
-const getSuntrustEmails = async () => {
-  console.log("Getting SunTrust emails...")
+let sunTrustBalance
+let citiBalance
+// Lordy lordy
+const run = () => {
   const sunTrustQuery =
     "from:alertnotification@suntrust.com " +
     "newer_than:2d" // TODO: figure out the timing on this
-  // TODO: start an event loop
 
-  let messages = []
-  return await listGmails({
-    "userId": "me",
-    "q": sunTrustQuery
-  }, async (err, res) => {
-    if (err) {
-      console.log(err)
-    } else {
-      messages = await new Array(res.data.messages.length)
-      res.data.messages.forEach(async (message, i, arr) => {
-        await getGmails({
-          "userId": "me",
-          "id": message.id
-        }, async (err, res) => {
-          if (err) {
-            console.log(err)
-          } else {
-            await messages.push(res.data)
-            if (i === arr.length - 1) {
-              console.log(messages)
-              return messages
-            }
-          }
-        })
-      })
-    }
-  })
-  console.log(messages)
-  return messages
-}
-
-const getCitiEmails = () => {
-  console.log("Getting Citi emails...")
   const citiQuery =
     "from:citicards@info6.citi.com " +
     "newer_than:2d"
 
-  let messages = []
+  let suntrustMessages = []
+  let citiMessages = []
+
+  console.log("Getting SunTrust emails...")
   gmail.users.messages.list({
     "userId": "me",
-    "q": citiQuery
+    "q": sunTrustQuery
   }, (err, res) => {
     if (err) {
       console.log(err)
     } else {
-      res.data.messages.forEach(message => {
+      res.data.messages.forEach ((message, i, arr) => {
         gmail.users.messages.get({
           "userId": "me",
           "id": message.id
@@ -132,7 +102,36 @@ const getCitiEmails = () => {
           if (err) {
             console.log(err)
           } else {
-            messages.push(res.data)
+            suntrustMessages.push(res.data)
+            if (i === arr.length - 1) {
+              sunTrustBalance = parseFloat(suntrustMessages[0].snippet.split("$")[1])
+
+              console.log("Getting Citi emails...")
+              gmail.users.messages.list({
+                "userId": "me",
+                "q": citiQuery
+              }, (err, res) => {
+                if (err) {
+                  console.log(err)
+                } else {
+                  res.data.messages.forEach((message, i, arr) => {
+                    gmail.users.messages.get({
+                      "userId": "me",
+                      "id": message.id
+                    }, (err, res) => {
+                      if (err) {
+                        console.log(err)
+                      } else {
+                        citiMessages.push(res.data)
+                        if (i === arr.length - 1) {
+                          // Send email
+                        }
+                      }
+                    })
+                  })
+                }
+              })
+            }
           }
         })
       })
@@ -140,25 +139,13 @@ const getCitiEmails = () => {
   })
 }
 
-const scrapeMessages = (messages) => {
-  console.log(messages.length)
-  messages.sort((a, b) => {
-    return new Date(a.headers.date) - new Date(b.headers.date)
-  })
-}
-
 const main = async () => {
   await getToken()
-  const sunTrustEmails = await getSuntrustEmails()
-  console.log(sunTrustEmails)
+
+  run()
+  // schedule.scheduleJob('0 12 * * *', () => {
+  //   run()
+  // })
   // const citiEmails = await getCitiEmails()
 }
 main()
-// const app = express()
-//
-// const port = process.env.PORT || 3000
-// app.listen(port, () => {
-//   console.log(`Effective Balance listening on port ${port}`)
-// })
-
-
