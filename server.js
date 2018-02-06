@@ -4,8 +4,10 @@ const readline = require("readline")
 const fs = require("fs")
 const google = require("googleapis")
 const OAuth2 = google.auth.OAuth2
-const promisify = require("bluebird")
+const util = require("util")
 require("dotenv").config()
+
+const readFile = util.promisify(fs.readFile)
 
 const tokenFile = ".token"
 
@@ -19,13 +21,13 @@ const oauth2Client = new OAuth2(
 // Check if we have a stored token
 const getToken = async () => {
   console.log("Authenticating with Google...")
-  await fs.readFile(tokenFile, async (err, token) => {
-    if (err) {
-      console.log('.token file not found, requesting new from Google')
-      await requestToken()
+  return await readFile(tokenFile, "utf-8").then(async (tokens) => {
+    if (!tokens) {
+      console.log(".token file not found, requesting new from Google")
+      return await requestToken()
     } else {
-      console.log('.token file found!')
-      oauth2Client.setCredentials(JSON.parse(token))
+      console.log(".token file found!")
+      return await oauth2Client.setCredentials(JSON.parse(tokens))
     }
   })
 }
@@ -66,21 +68,61 @@ const gmail = google.gmail({
   auth: oauth2Client,
   version: "v1"
 })
+// Promisify stuff because Google is stubborn
+const listGmails = util.promisify(gmail.users.messages.list)
+const getGmails = util.promisify(gmail.users.messages.get)
 
-const getSuntrustEmails = () => {
-  console.log("Getting SunTrust emails...");
+const getSuntrustEmails = async () => {
+  console.log("Getting SunTrust emails...")
   const sunTrustQuery =
-    "from:alertnotification@suntrust.com" +
+    "from:alertnotification@suntrust.com " +
     "newer_than:2d" // TODO: figure out the timing on this
   // TODO: start an event loop
 
   let messages = []
-  gmail.users.messages.list({
+  return await listGmails({
     "userId": "me",
     "q": sunTrustQuery
+  }, async (err, res) => {
+    if (err) {
+      console.log(err)
+    } else {
+      messages = await new Array(res.data.messages.length)
+      res.data.messages.forEach(async (message, i, arr) => {
+        await getGmails({
+          "userId": "me",
+          "id": message.id
+        }, async (err, res) => {
+          if (err) {
+            console.log(err)
+          } else {
+            await messages.push(res.data)
+            if (i === arr.length - 1) {
+              console.log(messages)
+              return messages
+            }
+          }
+        })
+      })
+    }
+  })
+  console.log(messages)
+  return messages
+}
+
+const getCitiEmails = () => {
+  console.log("Getting Citi emails...")
+  const citiQuery =
+    "from:citicards@info6.citi.com " +
+    "newer_than:2d"
+
+  let messages = []
+  gmail.users.messages.list({
+    "userId": "me",
+    "q": citiQuery
   }, (err, res) => {
     if (err) {
-      console.error(err)
+      console.log(err)
     } else {
       res.data.messages.forEach(message => {
         gmail.users.messages.get({
@@ -88,7 +130,7 @@ const getSuntrustEmails = () => {
           "id": message.id
         }, (err, res) => {
           if (err) {
-            console.error(err)
+            console.log(err)
           } else {
             messages.push(res.data)
           }
@@ -96,8 +138,6 @@ const getSuntrustEmails = () => {
       })
     }
   })
-
-  return messages
 }
 
 const scrapeMessages = (messages) => {
@@ -110,6 +150,8 @@ const scrapeMessages = (messages) => {
 const main = async () => {
   await getToken()
   const sunTrustEmails = await getSuntrustEmails()
+  console.log(sunTrustEmails)
+  // const citiEmails = await getCitiEmails()
 }
 main()
 // const app = express()
